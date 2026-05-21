@@ -3,23 +3,52 @@
 /* eslint-disable @next/next/no-img-element */
 import html2canvas from "html2canvas";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDown, Download, Flame, Mountain, Share2, Swords, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, CheckCircle2, Download, Flame, Mountain, Share2, ShieldCheck, Swords, Upload, Wallet, X } from "lucide-react";
 import Image from "next/image";
 import { forwardRef, useMemo, useRef, useState } from "react";
 import { AscensionIdentity, generateIdentity, statLabels } from "@/lib/generator";
 
 type Stage = "landing" | "upload" | "generating" | "result";
+type WalletStatus = "idle" | "connecting" | "verified" | "rejected" | "error";
+
+type EthereumProvider = {
+  request: <T = unknown>(args: { method: string; params?: unknown[] }) => Promise<T>;
+};
+
+declare global {
+  interface Window {
+    ethereum?: EthereumProvider;
+  }
+}
 
 const transition = { duration: 0.75, ease: [0.22, 1, 0.36, 1] };
+const BASE_CHAIN_ID = "0x2105";
+const GOATIN_CONTRACT = "0xa05173f4cf88dccea9d89447932df1a14f2e055b";
+const BALANCE_OF_SELECTOR = "0x70a08231";
+const BASE_CHAIN_PARAMS = {
+  chainId: BASE_CHAIN_ID,
+  chainName: "Base",
+  nativeCurrency: {
+    name: "Ether",
+    symbol: "ETH",
+    decimals: 18
+  },
+  rpcUrls: ["https://mainnet.base.org"],
+  blockExplorerUrls: ["https://basescan.org"]
+};
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("landing");
   const [preview, setPreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isGoatinAttested, setIsGoatinAttested] = useState(false);
+  const [walletStatus, setWalletStatus] = useState<WalletStatus>("idle");
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [goatinBalance, setGoatinBalance] = useState<bigint>(0n);
   const [identity, setIdentity] = useState<AscensionIdentity | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const isVerifiedHolder = walletStatus === "verified" && goatinBalance > 0n;
 
   const particles = useMemo(
     () =>
@@ -40,7 +69,11 @@ export default function Home() {
     if (!file) return;
     setUploadError(null);
     setPreview(null);
-    setIsGoatinAttested(false);
+
+    if (!isVerifiedHolder) {
+      setUploadError("Connect a wallet that holds GOATin before offering an image.");
+      return;
+    }
 
     if (!file.type.startsWith("image/")) {
       setUploadError("The gate only accepts image files from the GOATin collection.");
@@ -74,12 +107,48 @@ export default function Home() {
   };
 
   const ascend = () => {
-    if (!preview || !isGoatinAttested) return;
+    if (!preview || !isVerifiedHolder) return;
     setStage("generating");
     window.setTimeout(() => {
       setIdentity(generateIdentity());
       setStage("result");
     }, 1450);
+  };
+
+  const connectWallet = async () => {
+    setWalletError(null);
+    setWalletStatus("connecting");
+    setPreview(null);
+    setUploadError(null);
+
+    const provider = window.ethereum;
+    if (!provider) {
+      setWalletStatus("error");
+      setWalletError("No wallet found. Open this page in Coinbase Wallet, MetaMask, or another Base-compatible wallet.");
+      return;
+    }
+
+    try {
+      const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
+      const account = accounts[0];
+
+      if (!account) {
+        throw new Error("Wallet connection was cancelled.");
+      }
+
+      await ensureBaseNetwork(provider);
+      const balance = await readGoatinBalance(provider, account);
+
+      setWalletAddress(account);
+      setGoatinBalance(balance);
+      setWalletStatus(balance > 0n ? "verified" : "rejected");
+      if (balance === 0n) {
+        setWalletError("This wallet does not hold a GOATin NFT on Base.");
+      }
+    } catch (error) {
+      setWalletStatus("error");
+      setWalletError(error instanceof Error ? error.message : "The wallet rejected the ascension check.");
+    }
   };
 
   const downloadCard = async () => {
@@ -170,7 +239,7 @@ export default function Home() {
                   The Mountain Calls.
                 </h1>
                 <p className="mt-6 max-w-xl text-base leading-7 text-parchment/76 sm:text-lg">
-                  Upload your GOATin and reveal the warrior identity waiting inside the legendary Order.
+                  Connect your wallet, prove your GOATin, and reveal the warrior identity waiting inside the legendary Order.
                 </p>
                 <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                   <button
@@ -202,15 +271,54 @@ export default function Home() {
             >
               <div>
                 <p className="mb-4 text-sm uppercase tracking-[0.38em] text-oldgold">First Gate</p>
-                <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">Offer Your GOATin</h2>
+                <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">Prove Your GOATin</h2>
                 <p className="mt-5 max-w-lg leading-7 text-parchment/74">
-                  The gate checks for a high-resolution square NFT image before the Order reveals its clan, weapon, aura,
-                  rank, and mountain-borne lore.
+                  The Order checks your connected wallet for the GOATin contract on Base before the image offering opens.
+                  No holder, no ascension.
                 </p>
               </div>
 
               <div className="border border-oldgold/28 bg-black/52 p-4 shadow-ember backdrop-blur-md sm:p-6">
-                <label className="ritual-frame group relative flex min-h-[360px] cursor-pointer items-center justify-center overflow-hidden border border-parchment/20 bg-black/62 transition hover:border-oldgold/70">
+                <div className="mb-5 border border-parchment/14 bg-black/48 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-oldgold">Wallet Gate</p>
+                      <p className="mt-2 font-display text-2xl font-black text-parchment">
+                        {isVerifiedHolder ? "Holder Verified" : "Connect on Base"}
+                      </p>
+                      {walletAddress && (
+                        <p className="mt-2 text-sm text-parchment/60">
+                          {shortenAddress(walletAddress)} {isVerifiedHolder ? `holds ${goatinBalance.toString()} GOATin` : ""}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full border border-oldgold/40 bg-black/42 text-oldgold">
+                      {isVerifiedHolder ? <ShieldCheck className="h-6 w-6" /> : <Wallet className="h-6 w-6" />}
+                    </div>
+                  </div>
+                  {walletError && (
+                    <div className="mt-4 flex items-start gap-3 border border-crimson/45 bg-crimson/12 px-4 py-3 text-sm leading-6 text-parchment">
+                      <AlertTriangle className="mt-1 h-4 w-4 shrink-0 text-crimson" />
+                      <span>{walletError}</span>
+                    </div>
+                  )}
+                  {isVerifiedHolder && (
+                    <div className="mt-4 flex items-start gap-3 border border-oldgold/35 bg-oldgold/10 px-4 py-3 text-sm leading-6 text-parchment">
+                      <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-oldgold" />
+                      <span>GOATin ownership confirmed on Base. The image altar is open.</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={connectWallet}
+                    disabled={walletStatus === "connecting"}
+                    className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-3 border border-oldgold/60 bg-oldgold px-5 text-sm font-black uppercase tracking-[0.2em] text-black shadow-gold transition hover:bg-parchment disabled:opacity-60"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    {walletStatus === "connecting" ? "Checking..." : isVerifiedHolder ? "Check Another Wallet" : "Connect Wallet"}
+                  </button>
+                </div>
+
+                <label className={`ritual-frame group relative flex min-h-[360px] items-center justify-center overflow-hidden border border-parchment/20 bg-black/62 transition ${isVerifiedHolder ? "cursor-pointer hover:border-oldgold/70" : "cursor-not-allowed opacity-55"}`}>
                   {preview ? (
                     <img src={preview} alt="Uploaded GOATin preview" className="h-full max-h-[430px] w-full object-contain p-3" />
                   ) : (
@@ -223,6 +331,7 @@ export default function Home() {
                   <input
                     type="file"
                     accept="image/*"
+                    disabled={!isVerifiedHolder}
                     className="sr-only"
                     onChange={(event) => handleUpload(event.target.files?.[0])}
                   />
@@ -233,21 +342,8 @@ export default function Home() {
                     {uploadError}
                   </div>
                 )}
-                {preview && (
-                  <label className="mt-4 flex cursor-pointer items-start gap-3 border border-oldgold/24 bg-black/38 p-4 text-sm leading-6 text-parchment/78 transition hover:border-oldgold/55">
-                    <input
-                      type="checkbox"
-                      checked={isGoatinAttested}
-                      onChange={(event) => setIsGoatinAttested(event.target.checked)}
-                      className="mt-1 h-4 w-4 accent-oldgold"
-                    />
-                    <span>
-                      I confirm this is my GOATin NFT image and I am ready to enter it into the Order.
-                    </span>
-                  </label>
-                )}
                 <button
-                  disabled={!preview || !isGoatinAttested}
+                  disabled={!preview || !isVerifiedHolder}
                   onClick={ascend}
                   className="mt-5 inline-flex min-h-14 w-full items-center justify-center gap-3 border border-crimson/60 bg-crimson px-7 text-sm font-black uppercase tracking-[0.28em] text-white shadow-ember transition hover:bg-ember disabled:cursor-not-allowed disabled:border-parchment/10 disabled:bg-parchment/10 disabled:text-parchment/38"
                 >
@@ -316,6 +412,7 @@ export default function Home() {
                   onClick={() => {
                     setStage("upload");
                     setIdentity(null);
+                    setPreview(null);
                   }}
                   className="inline-flex min-h-12 items-center gap-3 text-sm font-bold uppercase tracking-[0.22em] text-parchment/62 transition hover:text-parchment"
                 >
@@ -376,3 +473,46 @@ const ResultCardBase = forwardRef<HTMLDivElement, { preview: string; identity: A
 ResultCardBase.displayName = "ResultCard";
 
 const ResultCard = motion.create(ResultCardBase);
+
+async function ensureBaseNetwork(provider: EthereumProvider) {
+  const chainId = await provider.request<string>({ method: "eth_chainId" });
+  if (chainId?.toLowerCase() === BASE_CHAIN_ID) return;
+
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: BASE_CHAIN_ID }]
+    });
+  } catch (error) {
+    const switchError = error as { code?: number };
+    if (switchError.code !== 4902) {
+      throw new Error("Switch to Base to prove GOATin ownership.");
+    }
+
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [BASE_CHAIN_PARAMS]
+    });
+  }
+}
+
+async function readGoatinBalance(provider: EthereumProvider, account: string) {
+  const paddedAddress = account.toLowerCase().replace("0x", "").padStart(64, "0");
+  const encodedBalanceOf = `${BALANCE_OF_SELECTOR}${paddedAddress}`;
+  const balanceHex = await provider.request<string>({
+    method: "eth_call",
+    params: [
+      {
+        to: GOATIN_CONTRACT,
+        data: encodedBalanceOf
+      },
+      "latest"
+    ]
+  });
+
+  return BigInt(balanceHex || "0x0");
+}
+
+function shortenAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
