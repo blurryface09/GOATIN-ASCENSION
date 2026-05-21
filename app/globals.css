@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  background: #090807;
+  --font-cinzel: Georgia, "Times New Roman", serif;
+  --font-inter: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(143, 29, 33, 0.25), transparent 34%),
+    linear-gradient(180deg, #050504 0%, #12100e 45%, #080706 100%);
+  color: #eadcc3;
+  font-family: var(--font-inter), sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(196, 42, 49, 0.5);
+  color: #fff7e8;
+}
+
+.grain {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, transparent, black 16%, black 86%, transparent);
+}
+
+.fog {
+  background:
+    radial-gradient(ellipse at 12% 52%, rgba(234, 220, 195, 0.12), transparent 34%),
+    radial-gradient(ellipse at 88% 46%, rgba(199, 154, 66, 0.12), transparent 30%),
+    linear-gradient(90deg, transparent, rgba(234, 220, 195, 0.08), transparent);
+  filter: blur(18px);
+}
+
+.ritual-frame {
+  clip-path: polygon(8% 0, 92% 0, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0 92%, 0 8%);
+}
+
+.card-export {
+  background:
+    radial-gradient(circle at 50% 10%, rgba(196, 42, 49, 0.22), transparent 28%),
+    linear-gradient(155deg, rgba(22, 20, 18, 0.98), rgba(6, 6, 6, 0.98)),
+    url("/images/mountain-order.png");
+  background-size: cover;
+  background-position: center;
+}
