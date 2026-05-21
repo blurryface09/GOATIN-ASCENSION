@@ -5,6 +5,8 @@ export type NftTrait = {
 
 export type AscensionIdentity = {
   clan: string;
+  rarity: RarityTier;
+  title: string;
   aura: string;
   weapon: string;
   role: string;
@@ -14,15 +16,25 @@ export type AscensionIdentity = {
   crest: string;
 };
 
+export type RarityTier = "Common" | "Rare" | "Mythic" | "Forbidden" | "Ascended";
 export type OrderStatKey = Exclude<keyof AscensionIdentity, "lore" | "crest">;
 
 const clans = ["Crimson Peak", "Ash Horn Clan", "Hollow Monks", "Black Summit", "Sun Eaters"];
+const hiddenFactions = ["Eclipse Order", "Crimson Hollow", "The Nameless", "Mountain Revenants"];
 const weapons = ["Katana of Echoes", "Bloodfang Blade", "Silent Tanto", "Mountain Spear", "Relic Bow", "Ash Cleaver"];
 const auras = ["Crimson Flame", "Shadow Purple", "Frost Smoke", "Golden Spirit", "Void Ash", "Blood Mist"];
 const roles = ["Ronin", "Beast Hunter", "Relic Keeper", "Mountain Guardian", "Corrupted Climber", "Order Disciple"];
 const ranks = ["First Climber", "Mountain Survivor", "Peak Seeker", "Order Disciple", "Ascended One"];
 const corruptions = ["Stable", "Touched", "Corrupted", "Hollowed", "Ascended"];
-const crests = ["山", "炎", "月", "牙", "灰"];
+const crests = ["山", "炎", "月", "牙", "灰", "蝕", "空", "名", "霊"];
+
+const rarityTitles: Record<RarityTier, string[]> = {
+  Common: ["Lantern Climber", "Ash Trail Witness", "First Gate Ronin", "Snowline Disciple"],
+  Rare: ["Red Mountain Survivor", "Fifth Summit Walker", "Golden Horn Sentinel", "Blood Mist Keeper"],
+  Mythic: ["Void Emperor", "The Hollowed Goat", "Crimson Relic Lord", "Moonlit Peak Hunter"],
+  Forbidden: ["Nameless Cursebearer", "Eclipse Blade Saint", "Mountain Revenant", "Crimson Hollow Prophet"],
+  Ascended: ["The Final Summit", "Goat Above the Mountain", "Void-Crowned Ascendant", "The Order's Chosen"]
+};
 
 const loreOpeners = [
   "Walked into the mountain alone",
@@ -79,6 +91,8 @@ const keywordMap = {
 };
 
 export const statLabels: Array<[OrderStatKey, string]> = [
+  ["rarity", "Rarity"],
+  ["title", "Title"],
   ["clan", "Faction"],
   ["aura", "Aura"],
   ["weapon", "Weapon"],
@@ -90,13 +104,16 @@ export const statLabels: Array<[OrderStatKey, string]> = [
 export function generateIdentity(tokenId = "0", traits: NftTrait[] = []): AscensionIdentity {
   const traitText = normalizeTraits(traits);
   const seed = hashString(`${tokenId}|${traitText}`);
+  const rarity = pickRarity(seed, traitText);
+  const event = getDailyEvent();
+  const hiddenFaction = shouldUseHiddenFaction(seed, rarity);
 
-  const clan = weightedPick(
+  const clan = hiddenFaction ?? weightedPick(
     [
-      ["Crimson Peak", 10 + scoreKeywords(traitText, keywordMap.crimson) * 8],
+      ["Crimson Peak", 10 + scoreKeywords(traitText, keywordMap.crimson) * 8 + (event.key === "crimson-moon" ? 8 : 0)],
       ["Ash Horn Clan", 10 + scoreKeywords(traitText, keywordMap.ash) * 6 + scoreKeywords(traitText, keywordMap.horn) * 4],
-      ["Hollow Monks", 10 + scoreKeywords(traitText, keywordMap.monk) * 7],
-      ["Black Summit", 10 + scoreKeywords(traitText, keywordMap.black) * 8],
+      ["Hollow Monks", 10 + scoreKeywords(traitText, keywordMap.monk) * 7 + (event.key === "hollow-night" ? 8 : 0)],
+      ["Black Summit", 10 + scoreKeywords(traitText, keywordMap.black) * 8 + (event.key === "corruption-surge" ? 6 : 0)],
       ["Sun Eaters", 10 + scoreKeywords(traitText, keywordMap.gold) * 5]
     ],
     seed
@@ -151,14 +168,66 @@ export function generateIdentity(tokenId = "0", traits: NftTrait[] = []): Ascens
 
   return {
     clan,
+    rarity,
+    title: pickTitle(seed, rarity, clan),
     aura,
     weapon,
     role,
     rank,
     corruption,
     lore: buildLore(seed, { clan, aura, weapon, role }),
-    crest: crests[clans.indexOf(clan)] ?? "峰"
+    crest: crests[[...clans, ...hiddenFactions].indexOf(clan)] ?? "峰"
   };
+}
+
+export function getDailyEvent() {
+  const day = Math.floor(Date.now() / 86400000);
+  const events = [
+    {
+      key: "crimson-moon",
+      name: "Crimson Moon Event",
+      effect: "Crimson Peak and Crimson Flame awaken tonight."
+    },
+    {
+      key: "corruption-surge",
+      name: "Corruption Surge",
+      effect: "Black Summit pulls and corrupted outcomes are louder."
+    },
+    {
+      key: "hollow-night",
+      name: "Hollow Night",
+      effect: "Hollow Monks and secret factions answer more often."
+    }
+  ] as const;
+
+  return events[day % events.length];
+}
+
+function pickRarity(seed: number, traitText: string): RarityTier {
+  let roll = seed % 10000;
+  if (scoreKeywords(traitText, keywordMap.gold) > 1) roll -= 220;
+  if (scoreKeywords(traitText, keywordMap.black) > 1) roll -= 120;
+
+  if (roll < 70) return "Ascended";
+  if (roll < 360) return "Forbidden";
+  if (roll < 1200) return "Mythic";
+  if (roll < 3300) return "Rare";
+  return "Common";
+}
+
+function shouldUseHiddenFaction(seed: number, rarity: RarityTier) {
+  const hiddenRoll = (seed >>> 17) % 10000;
+  const threshold = rarity === "Ascended" ? 4800 : rarity === "Forbidden" ? 2400 : rarity === "Mythic" ? 900 : rarity === "Rare" ? 260 : 80;
+  if (hiddenRoll > threshold) return null;
+  return hiddenFactions[(seed >>> 23) % hiddenFactions.length];
+}
+
+function pickTitle(seed: number, rarity: RarityTier, clan: string) {
+  if (clan === "Black Summit" && rarity !== "Common") return "Red Mountain Survivor";
+  if (clan === "The Nameless") return "The Nameless Walker";
+  if (clan === "Eclipse Order") return "Void Emperor";
+  const titles = rarityTitles[rarity];
+  return titles[(seed >>> 19) % titles.length];
 }
 
 function pickWeapon(traitText: string, seed: number) {

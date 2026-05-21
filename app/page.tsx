@@ -12,6 +12,7 @@ import {
   Images,
   Loader2,
   Mountain,
+  Music2,
   RefreshCw,
   Share2,
   ShieldCheck,
@@ -20,12 +21,21 @@ import {
   X
 } from "lucide-react";
 import Image from "next/image";
-import { forwardRef, useMemo, useRef, useState } from "react";
-import { AscensionIdentity, generateIdentity, statLabels } from "@/lib/generator";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { AscensionIdentity, generateIdentity, getDailyEvent, statLabels } from "@/lib/generator";
 import { demoGoatin, type NftFetchResponse, type OwnedGoatin } from "@/lib/nfts";
 
 type Stage = "landing" | "gallery" | "generating" | "result";
 type WalletStatus = "idle" | "connecting" | "loading" | "ready" | "empty" | "demo" | "error";
+type AscensionRecord = {
+  id: string;
+  name: string;
+  title: string;
+  rarity: AscensionIdentity["rarity"];
+  faction: string;
+  role: string;
+  lore: string;
+};
 
 type EthereumProvider = {
   request: <T = unknown>(args: { method: string; params?: unknown[] }) => Promise<T>;
@@ -34,6 +44,7 @@ type EthereumProvider = {
 declare global {
   interface Window {
     ethereum?: EthereumProvider;
+    webkitAudioContext?: typeof AudioContext;
   }
 }
 
@@ -43,6 +54,36 @@ const visualStyles = [
   "from-oldgold/28 via-black/75 to-crimson/18",
   "from-purple-950/38 via-black/80 to-crimson/22",
   "from-zinc-100/14 via-black/75 to-oldgold/24"
+];
+const rareRanks = ["Mythic", "Forbidden", "Ascended"];
+const seedAscensions: AscensionRecord[] = [
+  {
+    id: "seed-void-emperor",
+    name: "GOATin #1047",
+    title: "Void Emperor",
+    rarity: "Mythic",
+    faction: "Eclipse Order",
+    role: "Relic Keeper",
+    lore: "The mountain remembers."
+  },
+  {
+    id: "seed-red-survivor",
+    name: "GOATin #221",
+    title: "Red Mountain Survivor",
+    rarity: "Rare",
+    faction: "Black Summit",
+    role: "Beast Hunter",
+    lore: "Returned with red eyes."
+  },
+  {
+    id: "seed-final-summit",
+    name: "GOATin #3333",
+    title: "The Final Summit",
+    rarity: "Ascended",
+    faction: "Mountain Revenants",
+    role: "Mountain Guardian",
+    lore: "No witness spoke twice."
+  }
 ];
 
 export default function Home() {
@@ -58,8 +99,12 @@ export default function Home() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [visualVariant, setVisualVariant] = useState(0);
+  const [soundOn, setSoundOn] = useState(false);
+  const [noticeIdentity, setNoticeIdentity] = useState<AscensionIdentity | null>(null);
+  const [recentAscensions, setRecentAscensions] = useState<AscensionRecord[]>(seedAscensions);
   const cardRef = useRef<HTMLDivElement>(null);
   const sessionActive = walletStatus !== "idle";
+  const dailyEvent = useMemo(() => getDailyEvent(), []);
 
   const particles = useMemo(
     () =>
@@ -75,6 +120,18 @@ export default function Home() {
       }),
     []
   );
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("goatin-recent-ascensions");
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as AscensionRecord[];
+      queueMicrotask(() => setRecentAscensions([...parsed, ...seedAscensions].slice(0, 8)));
+    } catch {
+      window.localStorage.removeItem("goatin-recent-ascensions");
+    }
+  }, []);
 
   const connectWallet = async () => {
     setWalletStatus("connecting");
@@ -173,9 +230,15 @@ export default function Home() {
     if (!selectedNft) return;
     setIdentity(null);
     setExportError(null);
+    setShareNotice(null);
+    playRitualSound(soundOn, "draw");
     setStage("generating");
     window.setTimeout(() => {
-      setIdentity(generateIdentity(selectedNft.tokenId, selectedNft.traits));
+      const nextIdentity = generateIdentity(selectedNft.tokenId, selectedNft.traits);
+      setIdentity(nextIdentity);
+      recordAscension(selectedNft, nextIdentity, setRecentAscensions);
+      if (rareRanks.includes(nextIdentity.rarity)) setNoticeIdentity(nextIdentity);
+      playRitualSound(soundOn, rareRanks.includes(nextIdentity.rarity) ? "rare" : "reveal");
       setStage("result");
     }, 1450);
   };
@@ -250,17 +313,28 @@ export default function Home() {
             <Mountain className="h-5 w-5" />
             GOATin Order
           </div>
-          {sessionActive && (
-            <div className="flex items-center border border-oldgold/28 bg-black/52 text-[11px] uppercase tracking-[0.16em] text-parchment/72 backdrop-blur">
-              <span className="hidden border-r border-oldgold/20 px-3 py-2 sm:inline">
-                {walletAddress ? shortenAddress(walletAddress) : walletStatus === "demo" ? "Demo Session" : "Wallet Session"}
-              </span>
-              <button onClick={signOut} className="px-3 py-2 font-black text-oldgold transition hover:text-parchment">
-                Sign Out
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSoundOn((current) => !current)}
+              className="flex items-center gap-2 border border-oldgold/24 bg-black/42 px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-oldgold backdrop-blur transition hover:text-parchment"
+            >
+              <Music2 className="h-3.5 w-3.5" />
+              {soundOn ? "Sound On" : "Sound Off"}
+            </button>
+            {sessionActive && (
+              <div className="flex items-center border border-oldgold/28 bg-black/52 text-[11px] uppercase tracking-[0.16em] text-parchment/72 backdrop-blur">
+                <span className="hidden border-r border-oldgold/20 px-3 py-2 sm:inline">
+                  {walletAddress ? shortenAddress(walletAddress) : walletStatus === "demo" ? "Demo Session" : "Wallet Session"}
+                </span>
+                <button onClick={signOut} className="px-3 py-2 font-black text-oldgold transition hover:text-parchment">
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </header>
+        <EventBanner event={dailyEvent} />
+        <RareNotice identity={noticeIdentity} onClose={() => setNoticeIdentity(null)} />
 
         <AnimatePresence mode="wait">
           {stage === "landing" && (
@@ -381,6 +455,7 @@ export default function Home() {
                   </>
                 )}
               </div>
+              <LivingOrderPanel records={recentAscensions} />
             </motion.div>
           )}
 
@@ -421,8 +496,12 @@ export default function Home() {
             >
               <ResultCard ref={cardRef} nft={selectedNft} identity={identity} visualVariant={visualVariant} />
               <div className="space-y-4">
-                <p className="text-sm uppercase tracking-[0.38em] text-oldgold">Identity Sealed</p>
+                <p className="text-sm uppercase tracking-[0.38em] text-oldgold">{identity.rarity} Pull</p>
                 <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">Your GOATin Has Ascended</h2>
+                <div className={`border px-4 py-3 ${rarityPanelClass(identity.rarity)}`}>
+                  <p className="text-[10px] uppercase tracking-[0.28em]">Rarity Title</p>
+                  <p className="mt-1 font-display text-3xl font-black">{identity.title}</p>
+                </div>
                 <p className="leading-7 text-parchment/72">
                   The identity is fixed to this token. You can refresh the card styling without changing faction, role, rank, or lore.
                 </p>
@@ -477,6 +556,7 @@ export default function Home() {
                   <X className="h-4 w-4" />
                   View Another GOATin
                 </button>
+                <LivingOrderPanel records={recentAscensions} compact />
               </div>
             </motion.div>
           )}
@@ -625,13 +705,101 @@ function FallbackUpload({ handleUpload, uploadError }: { handleUpload: (file?: F
   );
 }
 
+function EventBanner({ event }: { event: ReturnType<typeof getDailyEvent> }) {
+  return (
+    <div className="mt-5 border border-crimson/28 bg-black/46 px-4 py-3 backdrop-blur">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-crimson">Daily Rotation</p>
+          <p className="font-display text-2xl font-black text-parchment">{event.name}</p>
+        </div>
+        <p className="max-w-xl text-sm leading-6 text-parchment/70">{event.effect}</p>
+      </div>
+    </div>
+  );
+}
+
+function RareNotice({ identity, onClose }: { identity: AscensionIdentity | null; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {identity && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/82 px-4 backdrop-blur-md"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            className={`scroll-panel max-w-lg p-6 text-center ${rarityGlowClass(identity.rarity)}`}
+            initial={{ scale: 0.86, y: 30 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.92, y: -20 }}
+          >
+            <p className="text-xs uppercase tracking-[0.34em] text-crimson">Rare Ascension</p>
+            <h2 className="mt-3 font-display text-4xl font-black leading-tight text-[#17120d]">The Order Has Taken Notice.</h2>
+            <p className="mt-4 text-sm uppercase tracking-[0.22em] text-black/52">{identity.rarity}</p>
+            <p className="mt-2 font-display text-3xl font-black text-[#17120d]">{identity.title}</p>
+            <p className="mt-3 leading-7 text-black/68">{identity.clan} has marked this climber.</p>
+            <button onClick={onClose} className="brush-button mt-6 inline-flex min-h-12 items-center justify-center px-6 text-sm font-black uppercase tracking-[0.2em]">
+              Reveal the Writ
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function LivingOrderPanel({ records, compact = false }: { records: AscensionRecord[]; compact?: boolean }) {
+  const rarest = [...records].sort((a, b) => rarityScore(b.rarity) - rarityScore(a.rarity))[0];
+  const faction = mostCommon(records.map((record) => record.faction));
+
+  return (
+    <div className={`ink-panel ${compact ? "p-4" : "p-4 sm:p-5"}`}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-oldgold">The Order Watches</p>
+          <h3 className="font-display text-3xl font-black text-parchment">Recent Climbers</h3>
+        </div>
+        <div className="hidden text-right text-xs uppercase tracking-[0.18em] text-parchment/52 sm:block">
+          Most Ascended Faction
+          <p className="mt-1 font-display text-xl text-oldgold">{faction}</p>
+        </div>
+      </div>
+      {!compact && rarest && (
+        <div className={`mb-4 border px-4 py-3 ${rarityPanelClass(rarest.rarity)}`}>
+          <p className="text-[10px] uppercase tracking-[0.24em]">Rarest Identity Today</p>
+          <p className="mt-1 font-display text-2xl font-black">{rarest.title}</p>
+          <p className="mt-1 text-sm">{rarest.name} | {rarest.faction}</p>
+        </div>
+      )}
+      <div className="grid gap-3 md:grid-cols-2">
+        {records.slice(0, compact ? 3 : 6).map((record) => (
+          <div key={record.id} className="border border-parchment/12 bg-black/42 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-display text-xl font-black text-parchment">{record.name}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-oldgold">{record.title}</p>
+              </div>
+              <span className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${rarityBadgeClass(record.rarity)}`}>
+                {record.rarity}
+              </span>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-parchment/62">{record.faction} | {record.role}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: AscensionIdentity; visualVariant: number }>(
   ({ nft, identity, visualVariant }, ref) => {
     const styleClass = visualStyles[visualVariant % visualStyles.length];
     const imageSrc = exportableImageSrc(nft.image);
 
     return (
-      <div ref={ref} className="card-export scroll-panel relative mx-auto w-full max-w-[560px] overflow-hidden p-4 sm:p-6">
+      <div ref={ref} className={`card-export scroll-panel relative mx-auto w-full max-w-[560px] overflow-hidden p-4 sm:p-6 ${rarityGlowClass(identity.rarity)}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${styleClass} opacity-30`} />
         <div className="absolute inset-3 border border-black/55" />
         <div className="absolute inset-x-8 top-5 h-px bg-gradient-to-r from-transparent via-black/70 to-transparent" />
@@ -647,6 +815,9 @@ const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: Asce
               <p className="text-[10px] uppercase tracking-[0.32em] text-crimson">GOATin Ascension</p>
               <h3 className="truncate font-display text-3xl font-black leading-tight text-[#17120d]">{nft.name}</h3>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-black/52">Token #{nft.tokenId}</p>
+              <span className={`mt-2 inline-flex border px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${rarityBadgeClass(identity.rarity)}`}>
+                {identity.rarity} | {identity.title}
+              </span>
             </div>
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-black/60 bg-[#17120d] font-display text-4xl text-oldgold shadow-gold">
               {identity.crest}
@@ -705,7 +876,9 @@ function shortenAddress(address: string) {
 function getShareText(nft: OwnedGoatin | null, identity: AscensionIdentity | null) {
   if (!nft || !identity) return "My GOATin entered the Order. The Mountain Calls.";
 
-  return `${nft.name} entered the GOATin Order.
+  return `The Order assigned ${nft.name} to ${identity.clan} as a ${identity.rarity} ${identity.role}.
+
+Title: ${identity.title}
 
 Faction: ${identity.clan}
 Aura: ${identity.aura}
@@ -717,6 +890,76 @@ Corruption: ${identity.corruption}
 ${identity.lore}
 
 The Mountain Calls.`;
+}
+
+function recordAscension(nft: OwnedGoatin, identity: AscensionIdentity, setRecords: (updater: (records: AscensionRecord[]) => AscensionRecord[]) => void) {
+  const record: AscensionRecord = {
+    id: `${nft.id}-${identity.rarity}-${Date.now()}`,
+    name: nft.name,
+    title: identity.title,
+    rarity: identity.rarity,
+    faction: identity.clan,
+    role: identity.role,
+    lore: identity.lore
+  };
+
+  setRecords((records) => {
+    const next = [record, ...records].slice(0, 8);
+    window.localStorage.setItem("goatin-recent-ascensions", JSON.stringify(next));
+    return next;
+  });
+}
+
+function rarityScore(rarity: AscensionIdentity["rarity"]) {
+  return { Common: 1, Rare: 2, Mythic: 3, Forbidden: 4, Ascended: 5 }[rarity];
+}
+
+function mostCommon(values: string[]) {
+  const counts = values.reduce<Record<string, number>>((acc, value) => {
+    acc[value] = (acc[value] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts).sort(([, a], [, b]) => b - a)[0]?.[0] ?? "Black Summit";
+}
+
+function rarityBadgeClass(rarity: AscensionIdentity["rarity"]) {
+  if (rarity === "Ascended") return "border-oldgold bg-oldgold text-black";
+  if (rarity === "Forbidden") return "border-crimson bg-crimson text-white";
+  if (rarity === "Mythic") return "border-purple-400 bg-purple-950/70 text-purple-100";
+  if (rarity === "Rare") return "border-oldgold/60 bg-oldgold/15 text-oldgold";
+  return "border-parchment/20 bg-black/35 text-parchment/68";
+}
+
+function rarityPanelClass(rarity: AscensionIdentity["rarity"]) {
+  if (rarity === "Ascended") return "border-oldgold bg-oldgold/18 text-oldgold shadow-gold";
+  if (rarity === "Forbidden") return "border-crimson bg-crimson/16 text-parchment shadow-ember";
+  if (rarity === "Mythic") return "border-purple-400/70 bg-purple-950/35 text-purple-100";
+  if (rarity === "Rare") return "border-oldgold/50 bg-oldgold/10 text-parchment";
+  return "border-parchment/14 bg-black/38 text-parchment";
+}
+
+function rarityGlowClass(rarity: AscensionIdentity["rarity"]) {
+  if (rarity === "Ascended") return "shadow-[0_0_90px_rgba(199,154,66,.45)]";
+  if (rarity === "Forbidden") return "shadow-[0_0_90px_rgba(196,42,49,.55)]";
+  return "shadow-[0_0_80px_rgba(168,85,247,.42)]";
+}
+
+function playRitualSound(enabled: boolean, kind: "draw" | "reveal" | "rare") {
+  if (!enabled) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  const audio = new AudioContextClass();
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  oscillator.type = kind === "draw" ? "sawtooth" : "sine";
+  oscillator.frequency.value = kind === "rare" ? 72 : kind === "reveal" ? 108 : 240;
+  gain.gain.setValueAtTime(kind === "rare" ? 0.08 : 0.045, audio.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + (kind === "rare" ? 0.75 : 0.35));
+  oscillator.connect(gain);
+  gain.connect(audio.destination);
+  oscillator.start();
+  oscillator.stop(audio.currentTime + (kind === "rare" ? 0.75 : 0.35));
 }
 
 function exportableImageSrc(src: string) {
@@ -748,6 +991,9 @@ async function renderIdentityPng(nft: OwnedGoatin, identity: AscensionIdentity) 
   context.font = "700 22px ui-sans-serif, system-ui";
   context.fillStyle = "rgba(23,18,13,.58)";
   context.fillText(`TOKEN #${nft.tokenId}`, 84, 274);
+  context.fillStyle = "#541114";
+  context.font = "900 30px Georgia, serif";
+  context.fillText(`${identity.rarity} | ${identity.title}`, 84, 308);
 
   context.save();
   context.beginPath();
@@ -777,6 +1023,8 @@ async function renderIdentityPng(nft: OwnedGoatin, identity: AscensionIdentity) 
   context.fillText(identity.crest, 1000, 210);
 
   const stats: Array<[string, string]> = [
+    ["Rarity", identity.rarity],
+    ["Title", identity.title],
     ["Faction", identity.clan],
     ["Aura", identity.aura],
     ["Weapon", identity.weapon],
@@ -786,15 +1034,15 @@ async function renderIdentityPng(nft: OwnedGoatin, identity: AscensionIdentity) 
   ];
 
   stats.forEach(([label, value], index) => {
-    const y = 320 + index * 72;
-    drawParchmentCell(context, 550, y, 570, 56);
+    const y = 320 + index * 55;
+    drawParchmentCell(context, 550, y, 570, 46);
     context.textAlign = "left";
     context.fillStyle = "rgba(23,18,13,.52)";
     context.font = "700 16px ui-sans-serif, system-ui";
-    context.fillText(label.toUpperCase(), 572, y + 22);
+    context.fillText(label.toUpperCase(), 572, y + 18);
     context.fillStyle = "#17120d";
-    context.font = "900 30px Georgia, serif";
-    context.fillText(value, 572, y + 48);
+    context.font = "900 24px Georgia, serif";
+    context.fillText(value, 572, y + 40);
   });
 
   drawParchmentCell(context, 80, 806, 1040, 210);
