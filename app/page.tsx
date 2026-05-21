@@ -1,7 +1,6 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import html2canvas from "html2canvas";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -55,9 +54,11 @@ export default function Home() {
   const [selectedNft, setSelectedNft] = useState<OwnedGoatin | null>(null);
   const [identity, setIdentity] = useState<AscensionIdentity | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [visualVariant, setVisualVariant] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
+  const sessionActive = walletStatus !== "idle";
 
   const particles = useMemo(
     () =>
@@ -116,6 +117,18 @@ export default function Home() {
     }
   };
 
+  const signOut = () => {
+    setStage("landing");
+    setWalletStatus("idle");
+    setWalletAddress(null);
+    setWalletMessage(null);
+    setOwnedNfts([]);
+    setSelectedNft(null);
+    setIdentity(null);
+    setUploadError(null);
+    setExportError(null);
+  };
+
   const handleUpload = (file?: File) => {
     if (!file) return;
     setUploadError(null);
@@ -158,6 +171,7 @@ export default function Home() {
   const beginAscension = () => {
     if (!selectedNft) return;
     setIdentity(null);
+    setExportError(null);
     setStage("generating");
     window.setTimeout(() => {
       setIdentity(generateIdentity(selectedNft.tokenId, selectedNft.traits));
@@ -166,18 +180,20 @@ export default function Home() {
   };
 
   const downloadCard = async () => {
-    if (!cardRef.current) return;
+    if (!selectedNft || !identity) return;
+    setExportError(null);
     setIsExporting(true);
     try {
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: "#090807",
-        scale: 2,
-        useCORS: true
-      });
+      const blob = await renderIdentityPng(selectedNft, identity);
       const link = document.createElement("a");
       link.download = `${selectedNft?.name ?? "goatin"}-ascension.png`.replace(/\s+/g, "-").toLowerCase();
-      link.href = canvas.toDataURL("image/png");
+      link.href = URL.createObjectURL(blob);
+      document.body.appendChild(link);
       link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch {
+      setExportError("The card could not be forged as a PNG. Try Download Card again.");
     } finally {
       setIsExporting(false);
     }
@@ -236,9 +252,14 @@ Lore: ${identity.lore}`;
             <Mountain className="h-5 w-5" />
             GOATin Order
           </div>
-          {walletAddress && (
-            <div className="border border-parchment/12 bg-black/42 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-parchment/70 backdrop-blur">
-              {shortenAddress(walletAddress)}
+          {sessionActive && (
+            <div className="flex items-center border border-oldgold/28 bg-black/52 text-[11px] uppercase tracking-[0.16em] text-parchment/72 backdrop-blur">
+              <span className="hidden border-r border-oldgold/20 px-3 py-2 sm:inline">
+                {walletAddress ? shortenAddress(walletAddress) : walletStatus === "demo" ? "Demo Session" : "Wallet Session"}
+              </span>
+              <button onClick={signOut} className="px-3 py-2 font-black text-oldgold transition hover:text-parchment">
+                Sign Out
+              </button>
             </div>
           )}
         </header>
@@ -264,11 +285,11 @@ Lore: ${identity.lore}`;
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <button
                     className="gold-button group inline-flex min-h-14 items-center justify-center gap-3 px-7 text-sm font-black uppercase tracking-[0.2em] transition"
-                    onClick={connectWallet}
+                    onClick={sessionActive ? () => setStage("gallery") : connectWallet}
                     disabled={walletStatus === "connecting" || walletStatus === "loading"}
                   >
                     <Wallet className="h-4 w-4" />
-                    {walletStatus === "connecting" || walletStatus === "loading" ? "Opening Gate..." : "Connect Wallet"}
+                    {walletStatus === "connecting" || walletStatus === "loading" ? "Opening Gate..." : sessionActive ? "Return to Order" : "Connect Wallet"}
                   </button>
                   <button
                     className="inline-flex min-h-14 items-center justify-center gap-3 border border-parchment/18 bg-black/45 px-7 text-sm font-black uppercase tracking-[0.2em] text-parchment backdrop-blur transition hover:border-oldgold hover:text-white"
@@ -279,7 +300,7 @@ Lore: ${identity.lore}`;
                   </button>
                 </div>
               </div>
-              <WalletPanel statusCopy={statusCopy} walletStatus={walletStatus} connectWallet={connectWallet} />
+              <WalletPanel statusCopy={statusCopy} walletStatus={walletStatus} connectWallet={connectWallet} signOut={signOut} />
             </motion.div>
           )}
 
@@ -300,7 +321,7 @@ Lore: ${identity.lore}`;
                     The Order reads your connected wallet, finds your GOATin NFTs, and lets the token itself climb.
                   </p>
                 </div>
-                <WalletPanel statusCopy={statusCopy} walletStatus={walletStatus} connectWallet={connectWallet} compact />
+                <WalletPanel statusCopy={statusCopy} walletStatus={walletStatus} connectWallet={connectWallet} signOut={signOut} compact />
               </div>
 
               <div className="ink-panel p-4 backdrop-blur-md sm:p-5 lg:p-6">
@@ -411,10 +432,10 @@ Lore: ${identity.lore}`;
                   <button
                     onClick={downloadCard}
                     disabled={isExporting}
-                  className="gold-button inline-flex min-h-14 items-center justify-center gap-3 px-5 text-sm font-black uppercase tracking-[0.18em] transition disabled:opacity-60"
+                    className="gold-button inline-flex min-h-14 items-center justify-center gap-3 px-5 text-sm font-black uppercase tracking-[0.18em] transition disabled:opacity-60"
                   >
                     <Download className="h-4 w-4" />
-                    {isExporting ? "Forging..." : "Download PNG"}
+                    {isExporting ? "Forging..." : "Download Card"}
                   </button>
                   <button
                     onClick={shareOnX}
@@ -438,6 +459,11 @@ Lore: ${identity.lore}`;
                     Regenerate Style
                   </button>
                 </div>
+                {exportError && (
+                  <div className="border border-crimson/45 bg-crimson/12 px-4 py-3 text-sm leading-6 text-parchment">
+                    {exportError}
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     setStage("gallery");
@@ -461,14 +487,17 @@ function WalletPanel({
   statusCopy,
   walletStatus,
   connectWallet,
+  signOut,
   compact = false
 }: {
   statusCopy: { title: string; body: string; icon: "ok" | "warn" | "load" | "wallet" };
   walletStatus: WalletStatus;
   connectWallet: () => void;
+  signOut: () => void;
   compact?: boolean;
 }) {
   const Icon = statusCopy.icon === "ok" ? CheckCircle2 : statusCopy.icon === "warn" ? AlertTriangle : statusCopy.icon === "load" ? Loader2 : Wallet;
+  const sessionActive = walletStatus !== "idle" && walletStatus !== "connecting" && walletStatus !== "loading";
 
   return (
     <div className={`scroll-panel w-full p-4 ${compact ? "" : "md:max-w-md md:justify-self-end"}`}>
@@ -482,12 +511,12 @@ function WalletPanel({
         </div>
       </div>
       <button
-        onClick={connectWallet}
+        onClick={sessionActive ? signOut : connectWallet}
         disabled={walletStatus === "connecting" || walletStatus === "loading"}
-        className="gold-button mt-4 inline-flex min-h-12 w-full items-center justify-center gap-3 px-5 text-sm font-black uppercase tracking-[0.18em] transition disabled:opacity-60"
+        className={`${sessionActive ? "brush-button" : "gold-button"} mt-4 inline-flex min-h-12 w-full items-center justify-center gap-3 px-5 text-sm font-black uppercase tracking-[0.18em] transition disabled:opacity-60`}
       >
-        <Wallet className="h-4 w-4" />
-        {walletStatus === "connecting" || walletStatus === "loading" ? "Reading Wallet..." : "Connect Wallet"}
+        {sessionActive ? <X className="h-4 w-4" /> : <Wallet className="h-4 w-4" />}
+        {walletStatus === "connecting" || walletStatus === "loading" ? "Reading Wallet..." : sessionActive ? "Sign Out" : "Connect Wallet"}
       </button>
     </div>
   );
@@ -596,6 +625,7 @@ function FallbackUpload({ handleUpload, uploadError }: { handleUpload: (file?: F
 const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: AscensionIdentity; visualVariant: number }>(
   ({ nft, identity, visualVariant }, ref) => {
     const styleClass = visualStyles[visualVariant % visualStyles.length];
+    const imageSrc = exportableImageSrc(nft.image);
 
     return (
       <div ref={ref} className="card-export scroll-panel relative mx-auto w-full max-w-[560px] overflow-hidden p-4 sm:p-6">
@@ -604,6 +634,11 @@ const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: Asce
         <div className="absolute inset-x-8 top-5 h-px bg-gradient-to-r from-transparent via-black/70 to-transparent" />
         <div className="absolute inset-x-8 bottom-5 h-px bg-gradient-to-r from-transparent via-black/70 to-transparent" />
         <div className="relative">
+          <div className="mb-3 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.28em] text-black/52">
+            <span className="h-px flex-1 bg-black/35" />
+            Ascension Writ
+            <span className="h-px flex-1 bg-black/35" />
+          </div>
           <div className="mb-4 flex items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.32em] text-crimson">GOATin Ascension</p>
@@ -617,7 +652,7 @@ const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: Asce
 
           <div className="grid gap-4 sm:grid-cols-[.9fr_1.1fr]">
             <div className="ritual-frame border border-black/70 bg-[radial-gradient(circle_at_50%_28%,rgba(196,42,49,.2),rgba(23,18,13,.95)_62%)] p-2">
-              <img src={nft.image} alt={nft.name} className="aspect-square w-full object-contain" crossOrigin="anonymous" />
+              <img src={imageSrc} alt={nft.name} className="aspect-square w-full object-contain" crossOrigin="anonymous" />
             </div>
             <div className="grid gap-2">
               {statLabels.map(([key, label]) => (
@@ -637,6 +672,10 @@ const ResultCard = forwardRef<HTMLDivElement, { nft: OwnedGoatin; identity: Asce
           <div className="mt-4 border border-crimson/45 bg-[#17120d] p-4 text-parchment">
             <p className="mb-2 text-[10px] uppercase tracking-[0.32em] text-crimson">Mountain Lore</p>
             <p className="font-display text-xl font-bold leading-8 text-parchment">&ldquo;{identity.lore}&rdquo;</p>
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-black/30 pt-3 text-[10px] uppercase tracking-[0.22em] text-black/52">
+            <span>GOATin Order</span>
+            <span>The Mountain Calls</span>
           </div>
         </div>
       </div>
@@ -658,4 +697,210 @@ function getStatusCopy(status: WalletStatus, message: string | null, count: numb
 
 function shortenAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function exportableImageSrc(src: string) {
+  if (src.startsWith("data:") || src.startsWith("/")) return src;
+  return `/api/image-proxy?url=${encodeURIComponent(src)}`;
+}
+
+async function renderIdentityPng(nft: OwnedGoatin, identity: AscensionIdentity) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 1600;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas unavailable.");
+
+  drawCertificateBackground(context, canvas.width, canvas.height);
+
+  context.textAlign = "center";
+  context.fillStyle = "#541114";
+  context.font = "700 26px Georgia, serif";
+  context.letterSpacing = "8px";
+  context.fillText("GOATIN ASCENSION WRIT", 600, 92);
+  context.letterSpacing = "0px";
+
+  context.textAlign = "left";
+  context.fillStyle = "#17120d";
+  context.font = "900 58px Georgia, serif";
+  drawWrappedText(context, nft.name, 82, 178, 760, 64, 2);
+
+  context.font = "700 22px ui-sans-serif, system-ui";
+  context.fillStyle = "rgba(23,18,13,.58)";
+  context.fillText(`TOKEN #${nft.tokenId}`, 84, 274);
+
+  context.save();
+  context.beginPath();
+  context.roundRect(80, 320, 430, 430, 18);
+  context.clip();
+  drawInkRect(context, 80, 320, 430, 430);
+  const image = await loadCanvasImage(exportableImageSrc(nft.image));
+  if (image) {
+    drawContainedImage(context, image, 102, 342, 386, 386);
+  } else {
+    context.fillStyle = "#c79a42";
+    context.font = "700 26px Georgia, serif";
+    context.textAlign = "center";
+    context.fillText("IMAGE SEALED", 295, 540);
+  }
+  context.restore();
+  strokePanel(context, 80, 320, 430, 430, "#17120d");
+
+  context.textAlign = "center";
+  context.fillStyle = "#c79a42";
+  context.font = "900 92px Georgia, serif";
+  context.beginPath();
+  context.arc(1000, 178, 78, 0, Math.PI * 2);
+  context.fillStyle = "#17120d";
+  context.fill();
+  context.fillStyle = "#c79a42";
+  context.fillText(identity.crest, 1000, 210);
+
+  const stats: Array<[string, string]> = [
+    ["Faction", identity.clan],
+    ["Aura", identity.aura],
+    ["Weapon", identity.weapon],
+    ["Role", identity.role],
+    ["Mountain Rank", identity.rank],
+    ["Corruption", identity.corruption]
+  ];
+
+  stats.forEach(([label, value], index) => {
+    const y = 320 + index * 72;
+    drawParchmentCell(context, 550, y, 570, 56);
+    context.textAlign = "left";
+    context.fillStyle = "rgba(23,18,13,.52)";
+    context.font = "700 16px ui-sans-serif, system-ui";
+    context.fillText(label.toUpperCase(), 572, y + 22);
+    context.fillStyle = "#17120d";
+    context.font = "900 30px Georgia, serif";
+    context.fillText(value, 572, y + 48);
+  });
+
+  drawParchmentCell(context, 80, 806, 1040, 210);
+  context.fillStyle = "#541114";
+  context.font = "700 18px ui-sans-serif, system-ui";
+  context.fillText("METADATA TRAITS", 110, 852);
+  nft.traits.slice(0, 8).forEach((trait, index) => {
+    const x = 110 + (index % 4) * 245;
+    const y = 890 + Math.floor(index / 4) * 76;
+    context.fillStyle = "rgba(23,18,13,.5)";
+    context.font = "700 15px ui-sans-serif, system-ui";
+    context.fillText(String(trait.trait_type).toUpperCase(), x, y);
+    context.fillStyle = "#17120d";
+    context.font = "900 22px Georgia, serif";
+    drawWrappedText(context, String(trait.value), x, y + 30, 205, 25, 1);
+  });
+
+  drawInkRect(context, 80, 1060, 1040, 250);
+  context.fillStyle = "#c42a31";
+  context.font = "700 18px ui-sans-serif, system-ui";
+  context.fillText("MOUNTAIN LORE", 118, 1110);
+  context.fillStyle = "#eadcc3";
+  context.font = "900 40px Georgia, serif";
+  drawWrappedText(context, `“${identity.lore}”`, 118, 1172, 960, 52, 3);
+
+  context.textAlign = "center";
+  context.fillStyle = "rgba(23,18,13,.58)";
+  context.font = "700 18px ui-sans-serif, system-ui";
+  context.fillText("GOATin Order   |   The Mountain Calls", 600, 1450);
+  context.fillRect(180, 1488, 840, 2);
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("PNG export failed."));
+    }, "image/png");
+  });
+}
+
+function drawCertificateBackground(context: CanvasRenderingContext2D, width: number, height: number) {
+  const gradient = context.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, "#eadcc3");
+  gradient.addColorStop(0.54, "#c9ad75");
+  gradient.addColorStop(1, "#8f7447");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = "#17120d";
+  context.lineWidth = 8;
+  context.strokeRect(34, 34, width - 68, height - 68);
+  context.lineWidth = 2;
+  context.strokeRect(58, 58, width - 116, height - 116);
+
+  for (let index = 0; index < 90; index += 1) {
+    const x = (index * 97) % width;
+    const y = (index * 151) % height;
+    context.fillStyle = `rgba(23,18,13,${0.025 + (index % 5) * 0.006})`;
+    context.beginPath();
+    context.arc(x, y, 1 + (index % 4), 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function drawParchmentCell(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+  context.fillStyle = "rgba(255,248,225,.18)";
+  context.fillRect(x, y, width, height);
+  strokePanel(context, x, y, width, height, "rgba(23,18,13,.32)");
+}
+
+function drawInkRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+  const gradient = context.createLinearGradient(x, y, x + width, y + height);
+  gradient.addColorStop(0, "#17120d");
+  gradient.addColorStop(0.58, "#090807");
+  gradient.addColorStop(1, "#541114");
+  context.fillStyle = gradient;
+  context.fillRect(x, y, width, height);
+}
+
+function strokePanel(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, color: string) {
+  context.strokeStyle = color;
+  context.lineWidth = 3;
+  context.strokeRect(x, y, width, height);
+}
+
+function drawContainedImage(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
+  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  context.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+}
+
+function drawWrappedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number
+) {
+  const words = text.split(" ");
+  let line = "";
+  let lineCount = 0;
+
+  words.forEach((word, index) => {
+    const testLine = line ? `${line} ${word}` : word;
+    if (context.measureText(testLine).width > maxWidth && line) {
+      context.fillText(line, x, y + lineCount * lineHeight);
+      line = word;
+      lineCount += 1;
+    } else {
+      line = testLine;
+    }
+
+    if (index === words.length - 1 && lineCount < maxLines) {
+      context.fillText(line, x, y + lineCount * lineHeight);
+    }
+  });
+}
+
+function loadCanvasImage(src: string) {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new window.Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
 }
