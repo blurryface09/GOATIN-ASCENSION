@@ -55,6 +55,7 @@ export default function Home() {
   const [identity, setIdentity] = useState<AscensionIdentity | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [visualVariant, setVisualVariant] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -182,6 +183,7 @@ export default function Home() {
   const downloadCard = async () => {
     if (!selectedNft || !identity) return;
     setExportError(null);
+    setShareNotice(null);
     setIsExporting(true);
     try {
       const blob = await renderIdentityPng(selectedNft, identity);
@@ -199,26 +201,22 @@ export default function Home() {
     }
   };
 
-  const shareOnX = () => {
-    const text =
-      selectedNft && identity
-        ? `${selectedNft.name} entered the GOATin Order as ${identity.role} of ${identity.clan}. ${identity.lore}`
-        : "My GOATin entered the Order. The Mountain Calls.";
+  const shareOnX = async () => {
+    const text = getShareText(selectedNft, identity);
+    setShareNotice(null);
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareNotice("Share text copied. Attach your downloaded card image in X for the full reveal.");
+    } catch {
+      setShareNotice("X is opening with your reveal text. Download the card and attach it to the post.");
+    }
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noreferrer");
   };
 
   const copyIdentity = async () => {
     if (!selectedNft || !identity) return;
-    const text = `${selectedNft.name}
-Faction: ${identity.clan}
-Aura: ${identity.aura}
-Weapon: ${identity.weapon}
-Role: ${identity.role}
-Rank: ${identity.rank}
-Corruption: ${identity.corruption}
-Lore: ${identity.lore}`;
-
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(getShareText(selectedNft, identity));
+    setShareNotice("Identity text copied.");
   };
 
   const statusCopy = getStatusCopy(walletStatus, walletMessage, ownedNfts.length);
@@ -442,7 +440,7 @@ Lore: ${identity.lore}`;
                     className="brush-button inline-flex min-h-14 items-center justify-center gap-3 px-5 text-sm font-black uppercase tracking-[0.18em] transition"
                   >
                     <Share2 className="h-4 w-4" />
-                    Share on X
+                    Copy + Share on X
                   </button>
                   <button
                     onClick={copyIdentity}
@@ -462,6 +460,11 @@ Lore: ${identity.lore}`;
                 {exportError && (
                   <div className="border border-crimson/45 bg-crimson/12 px-4 py-3 text-sm leading-6 text-parchment">
                     {exportError}
+                  </div>
+                )}
+                {shareNotice && (
+                  <div className="border border-oldgold/35 bg-oldgold/10 px-4 py-3 text-sm leading-6 text-parchment">
+                    {shareNotice}
                   </div>
                 )}
                 <button
@@ -697,6 +700,23 @@ function getStatusCopy(status: WalletStatus, message: string | null, count: numb
 
 function shortenAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function getShareText(nft: OwnedGoatin | null, identity: AscensionIdentity | null) {
+  if (!nft || !identity) return "My GOATin entered the Order. The Mountain Calls.";
+
+  return `${nft.name} entered the GOATin Order.
+
+Faction: ${identity.clan}
+Aura: ${identity.aura}
+Weapon: ${identity.weapon}
+Role: ${identity.role}
+Rank: ${identity.rank}
+Corruption: ${identity.corruption}
+
+${identity.lore}
+
+The Mountain Calls.`;
 }
 
 function exportableImageSrc(src: string) {
