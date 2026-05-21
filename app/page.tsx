@@ -15,6 +15,8 @@ const transition = { duration: 0.75, ease: [0.22, 1, 0.36, 1] };
 export default function Home() {
   const [stage, setStage] = useState<Stage>("landing");
   const [preview, setPreview] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isGoatinAttested, setIsGoatinAttested] = useState(false);
   const [identity, setIdentity] = useState<AscensionIdentity | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -36,13 +38,43 @@ export default function Home() {
 
   const handleUpload = (file?: File) => {
     if (!file) return;
+    setUploadError(null);
+    setPreview(null);
+    setIsGoatinAttested(false);
+
+    if (!file.type.startsWith("image/")) {
+      setUploadError("The gate only accepts image files from the GOATin collection.");
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => setPreview(String(reader.result));
+    reader.onload = () => {
+      const result = String(reader.result);
+      const probe = new window.Image();
+      probe.onload = () => {
+        const smallestSide = Math.min(probe.naturalWidth, probe.naturalHeight);
+        const ratio = probe.naturalWidth / probe.naturalHeight;
+
+        if (smallestSide < 600) {
+          setUploadError("This image is too small for ascension. Use a GOATin image at least 600 x 600.");
+          return;
+        }
+
+        if (ratio < 0.88 || ratio > 1.12) {
+          setUploadError("GOATin ascension requires a square NFT image. Upload the original GOATin artwork.");
+          return;
+        }
+
+        setPreview(result);
+      };
+      probe.onerror = () => setUploadError("The Order could not read this image. Try a PNG, JPG, or WEBP file.");
+      probe.src = result;
+    };
     reader.readAsDataURL(file);
   };
 
   const ascend = () => {
-    if (!preview) return;
+    if (!preview || !isGoatinAttested) return;
     setStage("generating");
     window.setTimeout(() => {
       setIdentity(generateIdentity());
@@ -172,7 +204,8 @@ export default function Home() {
                 <p className="mb-4 text-sm uppercase tracking-[0.38em] text-oldgold">First Gate</p>
                 <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">Offer Your GOATin</h2>
                 <p className="mt-5 max-w-lg leading-7 text-parchment/74">
-                  The frame accepts your image, then the Order reveals its clan, weapon, aura, rank, and mountain-borne lore.
+                  The gate checks for a high-resolution square NFT image before the Order reveals its clan, weapon, aura,
+                  rank, and mountain-borne lore.
                 </p>
               </div>
 
@@ -195,8 +228,26 @@ export default function Home() {
                   />
                   <span className="pointer-events-none absolute inset-4 border border-crimson/24" />
                 </label>
+                {uploadError && (
+                  <div className="mt-4 border border-crimson/45 bg-crimson/12 px-4 py-3 text-sm leading-6 text-parchment">
+                    {uploadError}
+                  </div>
+                )}
+                {preview && (
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 border border-oldgold/24 bg-black/38 p-4 text-sm leading-6 text-parchment/78 transition hover:border-oldgold/55">
+                    <input
+                      type="checkbox"
+                      checked={isGoatinAttested}
+                      onChange={(event) => setIsGoatinAttested(event.target.checked)}
+                      className="mt-1 h-4 w-4 accent-oldgold"
+                    />
+                    <span>
+                      I confirm this is my GOATin NFT image and I am ready to enter it into the Order.
+                    </span>
+                  </label>
+                )}
                 <button
-                  disabled={!preview}
+                  disabled={!preview || !isGoatinAttested}
                   onClick={ascend}
                   className="mt-5 inline-flex min-h-14 w-full items-center justify-center gap-3 border border-crimson/60 bg-crimson px-7 text-sm font-black uppercase tracking-[0.28em] text-white shadow-ember transition hover:bg-ember disabled:cursor-not-allowed disabled:border-parchment/10 disabled:bg-parchment/10 disabled:text-parchment/38"
                 >
